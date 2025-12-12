@@ -1,0 +1,3 @@
+Jagung_Baik
+Jagung_Rusak
+Jagung_Jamur
