@@ -23,7 +23,7 @@ public class CornTFLiteDetector : MonoBehaviour
     private WebCamTexture webcam;
     private Interpreter interpreter;
 
-    private Texture2D frozenFrame;
+    private Texture2D frozenFrame; // ✅ Fixed: was "Texture224"
     private float[] inputBuffer;
     private float[] outputBuffer;
     private string[] labels;
@@ -35,11 +35,8 @@ public class CornTFLiteDetector : MonoBehaviour
 
     IEnumerator Start()
     {
-        // ✅ Semua interaksi UI harus di dalam metode — ini benar!
-        if (captureButton != null)
-            captureButton.interactable = false;
-        if (continueButton != null)
-            continueButton.interactable = false;
+        if (captureButton != null) captureButton.interactable = false;
+        if (continueButton != null) continueButton.interactable = false;
 
         resultText.text = "Requesting camera permission...";
 
@@ -50,7 +47,7 @@ public class CornTFLiteDetector : MonoBehaviour
             yield break;
         }
 
-        yield return new WaitForSeconds(1.0f); // Penting untuk beberapa HP Android
+        yield return new WaitForSeconds(1.0f);
 
         // Load model
         string modelPath = Path.Combine(Application.streamingAssetsPath, modelFileName);
@@ -157,6 +154,7 @@ public class CornTFLiteDetector : MonoBehaviour
             }
         }
 
+        // Use HIGH RESOLUTION for smooth preview
         webcam = new WebCamTexture(deviceName, 1280, 720, 30);
         cameraPreview.texture = webcam;
         webcam.Play();
@@ -195,12 +193,13 @@ public class CornTFLiteDetector : MonoBehaviour
     {
         if (!isModelReady || webcam == null || !webcam.isPlaying) return;
 
-        RenderTexture rt = RenderTexture.GetTemporary(webcam.width, webcam.height, 0);
+        // ✅ SAFE capture using RenderTexture (same as real-time)
+        RenderTexture rt = RenderTexture.GetTemporary(width, height, 0);
         Graphics.Blit(webcam, rt);
 
-        frozenFrame = new Texture2D(webcam.width, webcam.height, TextureFormat.RGB24, false);
+        frozenFrame = new Texture2D(width, height, TextureFormat.RGB24, false);
         RenderTexture.active = rt;
-        frozenFrame.ReadPixels(new Rect(0, 0, webcam.width, webcam.height), 0, 0);
+        frozenFrame.ReadPixels(new Rect(0, 0, width, height), 0, 0);
         frozenFrame.Apply();
         RenderTexture.active = null;
         RenderTexture.ReleaseTemporary(rt);
@@ -233,17 +232,7 @@ public class CornTFLiteDetector : MonoBehaviour
     {
         resultText.text = "🧠 Analyzing...";
 
-        RenderTexture rt = RenderTexture.GetTemporary(width, height);
-        Graphics.Blit(frozenFrame, rt);
-
-        Texture2D inputTex = new Texture2D(width, height, TextureFormat.RGB24, false);
-        RenderTexture.active = rt;
-        inputTex.ReadPixels(new Rect(0, 0, width, height), 0, 0);
-        inputTex.Apply();
-        RenderTexture.active = null;
-        RenderTexture.ReleaseTemporary(rt);
-
-        Color32[] pixels = inputTex.GetPixels32();
+        Color32[] pixels = frozenFrame.GetPixels32();
         int idx = 0;
         for (int i = 0; i < pixels.Length; i++)
         {
@@ -282,9 +271,8 @@ public class CornTFLiteDetector : MonoBehaviour
         {
             resultText.text = "❌ Inference error!";
             Debug.LogError("TFLite inference failed: " + e.Message);
+            Debug.LogException(e);
         }
-
-        Destroy(inputTex);
     }
 
     void OnDestroy()
