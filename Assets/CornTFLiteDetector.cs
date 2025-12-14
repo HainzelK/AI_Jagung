@@ -8,12 +8,16 @@ using TMPro;
 
 public class CornTFLiteDetector : MonoBehaviour
 {
+    [Header("Script References")]
+    public ResultDisplay resultDisplay; 
+
     [Header("UI Assignments")]
     public RawImage cameraPreview;
-    public TMP_Text resultText;
+    public TMP_Text resultText; // Debug Text
     public AspectRatioFitter fitter;
     public Button captureButton;
-    public Button continueButton;
+
+    // (Removed 'continueButton' variable because we use the Back button now)
 
     [Header("Model Settings")]
     [Range(0f, 1f)] public float detectionThreshold = 0.6f;
@@ -22,8 +26,7 @@ public class CornTFLiteDetector : MonoBehaviour
 
     private WebCamTexture webcam;
     private Interpreter interpreter;
-
-    private Texture2D frozenFrame; // ✅ Fixed: was "Texture224"
+    private Texture2D frozenFrame;
     private float[] inputBuffer;
     private float[] outputBuffer;
     private string[] labels;
@@ -36,18 +39,15 @@ public class CornTFLiteDetector : MonoBehaviour
     IEnumerator Start()
     {
         if (captureButton != null) captureButton.interactable = false;
-        if (continueButton != null) continueButton.interactable = false;
-
-        resultText.text = "Requesting camera permission...";
+        
+        if(resultText != null) resultText.text = "Requesting camera permission...";
 
         yield return Application.RequestUserAuthorization(UserAuthorization.WebCam);
         if (!Application.HasUserAuthorization(UserAuthorization.WebCam))
         {
-            resultText.text = "❌ Camera permission denied!";
+            if(resultText != null) resultText.text = "❌ Permission denied!";
             yield break;
         }
-
-        yield return new WaitForSeconds(1.0f);
 
         // Load model
         string modelPath = Path.Combine(Application.streamingAssetsPath, modelFileName);
@@ -58,29 +58,15 @@ public class CornTFLiteDetector : MonoBehaviour
             using (UnityWebRequest www = UnityWebRequest.Get(modelPath))
             {
                 yield return www.SendWebRequest();
-                if (www.result != UnityWebRequest.Result.Success)
-                {
-                    resultText.text = $"❌ Model load failed:\n{www.error}";
-                    yield break;
-                }
                 modelData = www.downloadHandler.data;
             }
         }
         else
         {
-            try
-            {
-                modelData = File.ReadAllBytes(modelPath);
-            }
-            catch (System.Exception e)
-            {
-                resultText.text = "❌ Model file not found!";
-                Debug.LogError(e.Message);
-                yield break;
-            }
+            try { modelData = File.ReadAllBytes(modelPath); } catch {}
         }
 
-        // Initialize TFLite
+        // Init TFLite
         try
         {
             var options = new InterpreterOptions();
@@ -94,7 +80,6 @@ public class CornTFLiteDetector : MonoBehaviour
         }
         catch (System.Exception e)
         {
-            resultText.text = "❌ TFLite init failed!";
             Debug.LogError($"TFLite error: {e.Message}");
             yield break;
         }
@@ -102,101 +87,68 @@ public class CornTFLiteDetector : MonoBehaviour
         // Load labels
         string labelPath = Path.Combine(Application.streamingAssetsPath, labelFileName);
         string labelData = null;
-
-        if (labelPath.Contains("://"))
-        {
-            using (UnityWebRequest req = UnityWebRequest.Get(labelPath))
-            {
+        if (labelPath.Contains("://")) {
+            using (UnityWebRequest req = UnityWebRequest.Get(labelPath)) {
                 yield return req.SendWebRequest();
-                if (req.result == UnityWebRequest.Result.Success)
-                    labelData = req.downloadHandler.text;
+                labelData = req.downloadHandler.text;
             }
-        }
-        else
-        {
-            try
-            {
-                labelData = File.ReadAllText(labelPath);
-            }
-            catch { /* ignore */ }
+        } else {
+            try { labelData = File.ReadAllText(labelPath); } catch { }
         }
 
-        if (!string.IsNullOrEmpty(labelData))
-        {
+        if (!string.IsNullOrEmpty(labelData)) {
             labels = labelData.Split(new[] { '\n', '\r' }, System.StringSplitOptions.RemoveEmptyEntries);
-            if (labels.Length != outputBuffer.Length)
-                labels = null;
-            else
-                for (int i = 0; i < labels.Length; i++)
-                    labels[i] = labels[i].Trim();
         }
 
-        resultText.text = "✅ Ready!\nStarting camera...";
         StartCamera();
     }
 
     void StartCamera()
     {
         WebCamDevice[] devices = WebCamTexture.devices;
-        if (devices.Length == 0)
-        {
-            resultText.text = "❌ No camera found!";
-            return;
-        }
+        if (devices.Length == 0) return;
 
         string deviceName = devices[0].name;
-        foreach (var device in devices)
-        {
-            if (!device.isFrontFacing)
-            {
+        foreach (var device in devices) {
+            if (!device.isFrontFacing) {
                 deviceName = device.name;
                 break;
             }
         }
 
-        // Use HIGH RESOLUTION for smooth preview
         webcam = new WebCamTexture(deviceName, 1280, 720, 30);
         cameraPreview.texture = webcam;
         webcam.Play();
 
         if (captureButton != null) captureButton.interactable = true;
-        if (continueButton != null) continueButton.interactable = false;
-
-        resultText.text = "✅ Ready! Tap 'Capture' to freeze and analyze";
+        if (resultText != null) resultText.text = "✅ Ready!";
     }
 
     void Update()
     {
         if (webcam == null || !webcam.isPlaying || isFrozen) return;
 
-        if (fitter != null && webcam.width > 100 && webcam.height > 100)
-        {
+        if (fitter != null) {
             float aspect = (float)webcam.width / webcam.height;
             if (webcam.videoRotationAngle == 90 || webcam.videoRotationAngle == 270)
                 aspect = 1.0f / aspect;
             fitter.aspectRatio = aspect;
         }
 
-        if (cameraPreview != null)
-        {
-            cameraPreview.rectTransform.localEulerAngles = new Vector3(0, 0, -webcam.videoRotationAngle);
-            cameraPreview.uvRect = new Rect(
-                0,
-                webcam.videoVerticallyMirrored ? 1 : 0,
-                1,
-                webcam.videoVerticallyMirrored ? -1 : 1
-            );
-        }
+        cameraPreview.rectTransform.localEulerAngles = new Vector3(0, 0, -webcam.videoRotationAngle);
+        cameraPreview.uvRect = new Rect(0, webcam.videoVerticallyMirrored ? 1 : 0, 1, webcam.videoVerticallyMirrored ? -1 : 1);
     }
 
+    // ------------------------------------------------
+    // 1. CAPTURE LOGIC
+    // ------------------------------------------------
     public void CaptureAndAnalyze()
     {
         if (!isModelReady || webcam == null || !webcam.isPlaying) return;
 
-        // ✅ SAFE capture using RenderTexture (same as real-time)
+        // Freeze frame
         RenderTexture rt = RenderTexture.GetTemporary(width, height, 0);
         Graphics.Blit(webcam, rt);
-
         frozenFrame = new Texture2D(width, height, TextureFormat.RGB24, false);
         RenderTexture.active = rt;
         frozenFrame.ReadPixels(new Rect(0, 0, width, height), 0, 0);
@@ -208,12 +160,15 @@ public class CornTFLiteDetector : MonoBehaviour
         isFrozen = true;
         webcam.Stop();
 
-        RunInferenceOnFrozenFrame();
-
-        if (continueButton != null) continueButton.interactable = true;
+        // DISABLE BUTTON immediately
         if (captureButton != null) captureButton.interactable = false;
+
+        RunInferenceOnFrozenFrame();
     }
 
+    // ------------------------------------------------
+    // 2. RESTART LOGIC (Called by Back Button)
+    // ------------------------------------------------
     public void ContinueCamera()
     {
         if (webcam == null) return;
@@ -222,20 +177,23 @@ public class CornTFLiteDetector : MonoBehaviour
         webcam.Play();
         isFrozen = false;
 
-        if (continueButton != null) continueButton.interactable = false;
-        if (captureButton != null) captureButton.interactable = true;
+        // ✅ RE-ENABLE BUTTON
+        if (captureButton != null) 
+        {
+            captureButton.interactable = true;
+            Debug.Log("Capture button re-enabled.");
+        }
 
-        resultText.text = "✅ Ready! Tap 'Capture' to freeze and analyze";
+        if (resultText != null) resultText.text = "✅ Ready!";
     }
 
     void RunInferenceOnFrozenFrame()
     {
-        resultText.text = "🧠 Analyzing...";
+        if (resultText != null) resultText.text = "Analyzing...";
 
         Color32[] pixels = frozenFrame.GetPixels32();
         int idx = 0;
-        for (int i = 0; i < pixels.Length; i++)
-        {
+        for (int i = 0; i < pixels.Length; i++) {
             inputBuffer[idx++] = pixels[i].r / 255.0f;
             inputBuffer[idx++] = pixels[i].g / 255.0f;
             inputBuffer[idx++] = pixels[i].b / 255.0f;
@@ -249,38 +207,32 @@ public class CornTFLiteDetector : MonoBehaviour
 
             int predictedClass = 0;
             float maxConfidence = outputBuffer[0];
-            for (int i = 1; i < outputBuffer.Length; i++)
-            {
-                if (outputBuffer[i] > maxConfidence)
-                {
+            for (int i = 1; i < outputBuffer.Length; i++) {
+                if (outputBuffer[i] > maxConfidence) {
                     maxConfidence = outputBuffer[i];
                     predictedClass = i;
                 }
             }
 
-            string className = (labels != null && predictedClass < labels.Length)
-                ? labels[predictedClass]
-                : $"Class {predictedClass}";
+            string className = (labels != null && predictedClass < labels.Length) 
+                ? labels[predictedClass] : $"Class {predictedClass}";
 
-            string status = maxConfidence > detectionThreshold ? "✅ DETECTED!" : "🔍 Low confidence";
-            resultText.text = $"{className}\n{status}\nConfidence: {maxConfidence:P1}";
+            Debug.Log($"[RESULT] {className}");
 
-            Debug.Log($"[RESULT] {className} | Conf: {maxConfidence:F4}");
+            // Trigger Result UI
+            if (resultDisplay != null) {
+                resultDisplay.ShowResult(className);
+            } else {
+                Debug.LogError("ResultDisplay not assigned in Detector script!");
+            }
         }
-        catch (System.Exception e)
-        {
-            resultText.text = "❌ Inference error!";
-            Debug.LogError("TFLite inference failed: " + e.Message);
-            Debug.LogException(e);
+        catch (System.Exception e) {
+            Debug.LogError(e.Message);
         }
     }
 
-    void OnDestroy()
-    {
-        if (webcam != null && webcam.isPlaying)
-            webcam.Stop();
+    void OnDestroy() {
+        if (webcam != null) webcam.Stop();
         interpreter?.Dispose();
-        if (frozenFrame != null)
-            Destroy(frozenFrame);
     }
 }

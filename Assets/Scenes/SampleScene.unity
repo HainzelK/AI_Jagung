@@ -1015,6 +1015,7 @@ GameObject:
   m_Component:
   - component: {fileID: 519110771}
   - component: {fileID: 519110770}
+  - component: {fileID: 519110772}
   m_Layer: 0
   m_Name: CornDetector
   m_TagString: Untagged
@@ -1039,6 +1040,7 @@ MonoBehaviour:
   fitter: {fileID: 0}
   captureButton: {fileID: 778900800}
   continueButton: {fileID: 201244982}
+  qualityCalculator: {fileID: 519110772}
   detectionThreshold: 0.6
   modelFileName: corn_detector.tflite
   labelFileName: labels.txt
@@ -1057,6 +1059,26 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &519110772
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 519110769}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 22654d9961efa804d9f7c64a4edf530a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  cornLengthCm: 18
+  seedResistance: 0
+  soilCondition: 0
+  physicalConditionScore: 0
+  lengthScore: 0
+  resistanceScore: 0
+  soilScore: 0
+  finalWeightedScore: 0
 --- !u!1 &778900798
 GameObject:
   m_ObjectHideFlags: 0
