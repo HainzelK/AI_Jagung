@@ -32,9 +32,27 @@ public class ResultDisplay : MonoBehaviour
         if (benihKetahanan != null) benihKetahanan.text = calculator.seedResistance.ToString();
         if (tanahKondisi != null) tanahKondisi.text = calculator.soilCondition.ToString();
         if (benihKondisi != null) benihKondisi.text = aiLabel;
-        if (progressCircle != null) progressCircle.fillAmount = calculator.finalWeightedScore / 100f;
 
-        // 3. Show Panel
+        // 3. Update Progress Circle (Fill & Color)
+        if (progressCircle != null) 
+        {
+            // Set Fill Amount
+            progressCircle.fillAmount = calculator.finalWeightedScore / 100f;
+
+            // --- COLOR LOGIC ADDED HERE ---
+            if (calculator.finalWeightedScore >= 50)
+            {
+                // Hex: #0099F8 (Blue) -> R:0, G:153, B:248
+                progressCircle.color = new Color32(0, 153, 248, 255);
+            }
+            else
+            {
+                // Hex: #EE0000 (Red) -> R:238, G:0, B:0
+                progressCircle.color = new Color32(238, 0, 0, 255);
+            }
+        }
+
+        // 4. Show Panel
         if (resultPanel != null)
         {
             resultPanel.SetActive(true);
@@ -42,7 +60,7 @@ public class ResultDisplay : MonoBehaviour
             if (cg != null) { cg.alpha = 1f; cg.interactable = true; cg.blocksRaycasts = true; }
         }
 
-        // 4. Force Capture Button OFF
+        // 5. Force Capture Button OFF
         if (detector != null && detector.captureButton != null)
         {
             detector.captureButton.interactable = false;
@@ -67,7 +85,7 @@ public class ResultDisplay : MonoBehaviour
         // 2. Resume Camera & Enable Button
         if (detector != null)
         {
-            detector.ContinueCamera(); // <--- This enables the button
+            detector.ContinueCamera(); 
         }
         else
         {
