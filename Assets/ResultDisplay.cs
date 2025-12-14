@@ -6,7 +6,9 @@ public class ResultDisplay : MonoBehaviour
 {
     [Header("References")]
     public CornQualityCalculator calculator;
-    public CornTFLiteDetector detector; // <--- MUST BE ASSIGNED
+
+    // PERUBAHAN PENTING: Ganti ke script AR yang baru
+    public CornTFLiteDetector detector;
 
     [Header("UI Panels")]
     public GameObject resultPanel;
@@ -34,12 +36,12 @@ public class ResultDisplay : MonoBehaviour
         if (benihKondisi != null) benihKondisi.text = aiLabel;
 
         // 3. Update Progress Circle (Fill & Color)
-        if (progressCircle != null) 
+        if (progressCircle != null)
         {
             // Set Fill Amount
             progressCircle.fillAmount = calculator.finalWeightedScore / 100f;
 
-            // --- COLOR LOGIC ADDED HERE ---
+            // --- COLOR LOGIC ---
             if (calculator.finalWeightedScore >= 50)
             {
                 // Hex: #0099F8 (Blue) -> R:0, G:153, B:248
@@ -83,9 +85,10 @@ public class ResultDisplay : MonoBehaviour
         }
 
         // 2. Resume Camera & Enable Button
+        // Memanggil fungsi ContinueCamera() milik CornARDetector
         if (detector != null)
         {
-            detector.ContinueCamera(); 
+            detector.ContinueCamera();
         }
         else
         {
