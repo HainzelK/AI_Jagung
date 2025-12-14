@@ -17,26 +17,26 @@ public class CornTFLiteDetector : MonoBehaviour
     public AspectRatioFitter fitter;
     public Button captureButton;
 
-    // (Removed 'continueButton' variable because we use the Back button now)
-
     [Header("Model Settings")]
     [Range(0f, 1f)] public float detectionThreshold = 0.6f;
     public string modelFileName = "corn_detector.tflite";
     public string labelFileName = "labels.txt";
 
     [Header("TFLite Settings")]
-    [Tooltip("Matikan jika aplikasi keluar sendiri (Crash) saat tombol ditekan")]
     public bool useGPUDelegate = false;
 
     private WebCamTexture webcam;
     private Interpreter interpreter;
 
-    private Texture2D frozenFrame;
+    // We separate the AI image from the Display image to fix stretching/blur
+    private Texture2D aiFrame;      // Small (224x224) for AI
+    private Texture2D displayFrame; // HD (Full Screen) for User
+
     private float[] inputBuffer;
     private float[] outputBuffer;
     private string[] labels;
 
-    // Dimensi yang dibaca otomatis dari Model
+    // Dimensions read automatically from Model
     private int inputWidth;
     private int inputHeight;
     private int inputChannels;
@@ -46,23 +46,21 @@ public class CornTFLiteDetector : MonoBehaviour
 
     IEnumerator Start()
     {
-        // Matikan tombol saat loading
         if (captureButton != null) captureButton.interactable = false;
-        
-        if(resultText != null) resultText.text = "Requesting camera permission...";
+        if (resultText != null) resultText.text = "Requesting permissions...";
 
         yield return Application.RequestUserAuthorization(UserAuthorization.WebCam);
         if (!Application.HasUserAuthorization(UserAuthorization.WebCam))
         {
-            if(resultText != null) resultText.text = "❌ Permission denied!";
+            if (resultText != null) resultText.text = "❌ Permission denied!";
             yield break;
         }
 
-        // Load model
+        // Load Model
         string modelPath = Path.Combine(Application.streamingAssetsPath, modelFileName);
         byte[] modelData = null;
 
-        if (modelPath.Contains("://")) // Android (dalam APK)
+        if (modelPath.Contains("://"))
         {
             using (UnityWebRequest www = UnityWebRequest.Get(modelPath))
             {
@@ -70,7 +68,7 @@ public class CornTFLiteDetector : MonoBehaviour
                 modelData = www.downloadHandler.data;
             }
         }
-        else // Editor (PC)
+        else
         {
             try { modelData = File.ReadAllBytes(modelPath); } catch {}
         }
@@ -79,23 +77,15 @@ public class CornTFLiteDetector : MonoBehaviour
         try
         {
             var options = new InterpreterOptions();
-
-            // GPU Delegate (Opsional)
-            if (useGPUDelegate)
-            {
-                try { options.AddGpuDelegate(); }
-                catch { Debug.LogWarning("GPU gagal, pakai CPU saja."); }
-            }
-
+            if (useGPUDelegate) { try { options.AddGpuDelegate(); } catch { } }
             options.threads = 2;
             interpreter = new Interpreter(modelData, options);
             interpreter.AllocateTensors();
 
-            // --- 3. BACA UKURAN MODEL OTOMATIS (Anti Crash) ---
+            // Get Model Input Size
             var inputInfo = interpreter.GetInputTensorInfo(0);
-            int[] inputShape = inputInfo.shape; // contoh: [1, 224, 224, 3]
+            int[] inputShape = inputInfo.shape;
 
-            // Ambil Lebar, Tinggi, Channel dari info model
             if (inputShape.Length == 4)
             {
                 inputHeight = inputShape[1];
@@ -104,18 +94,11 @@ public class CornTFLiteDetector : MonoBehaviour
             }
             else
             {
-                // Jaga-jaga jika format model beda, pakai standar default
-                inputHeight = 224;
-                inputWidth = 224;
-                inputChannels = 3;
+                inputHeight = 224; inputWidth = 224; inputChannels = 3;
             }
 
-            Debug.Log($"Ukuran Model: {inputWidth}x{inputHeight}, Channel: {inputChannels}");
-
-            // Siapkan Buffer Data
             inputBuffer = new float[inputWidth * inputHeight * inputChannels];
-
-            // Siapkan Output
+            
             var outputInfo = interpreter.GetOutputTensorInfo(0);
             int outputClasses = outputInfo.shape[1];
             outputBuffer = new float[outputClasses];
@@ -128,11 +111,7 @@ public class CornTFLiteDetector : MonoBehaviour
             yield break;
         }
 
-        // --- 4. Load Labels ---
         yield return LoadLabels();
-
-        resultText.text = "✅ Siap!\nMenyalakan kamera...";
-        StartCamera();
     }
 
     IEnumerator LoadLabels()
@@ -161,14 +140,16 @@ public class CornTFLiteDetector : MonoBehaviour
         if (devices.Length == 0) return;
 
         string deviceName = devices[0].name;
-        foreach (var device in devices) {
-            if (!device.isFrontFacing) {
-                deviceName = device.name;
-                break;
-            }
+        for (int i = 0; i < devices.Length; i++)
+        {
+            if (!devices[i].isFrontFacing) { deviceName = devices[i].name; break; }
         }
 
-        webcam = new WebCamTexture(deviceName, 1280, 720, 30);
+        // Fix for Zoom: Request Screen Resolution
+        int w = Screen.height; 
+        int h = Screen.width;
+        
+        webcam = new WebCamTexture(deviceName, w, h, 30);
         cameraPreview.texture = webcam;
         webcam.Play();
 
@@ -176,7 +157,6 @@ public class CornTFLiteDetector : MonoBehaviour
         if (resultText != null) resultText.text = "✅ Ready!";
     }
 
-    // --- LOGIKA UTAMA FULL SCREEN DI SINI ---
     void Update()
     {
         if (webcam == null || !webcam.isPlaying || isFrozen) return;
@@ -189,11 +169,12 @@ public class CornTFLiteDetector : MonoBehaviour
         }
 
         cameraPreview.rectTransform.localEulerAngles = new Vector3(0, 0, -webcam.videoRotationAngle);
-        cameraPreview.uvRect = new Rect(0, webcam.videoVerticallyMirrored ? 1 : 0, 1, webcam.videoVerticallyMirrored ? -1 : 1);
+        float scaleY = webcam.videoVerticallyMirrored ? -1f : 1f;
+        cameraPreview.rectTransform.localScale = new Vector3(1f, scaleY, 1f);
     }
 
     // ------------------------------------------------
-    // 1. CAPTURE LOGIC
+    // 1. CAPTURE LOGIC (FIXED)
     // ------------------------------------------------
     public void CaptureAndAnalyze()
     {
@@ -201,52 +182,64 @@ public class CornTFLiteDetector : MonoBehaviour
         StartCoroutine(CaptureRoutine());
     }
 
-    // Coroutine untuk mengambil gambar dengan aman
     IEnumerator CaptureRoutine()
     {
         yield return new WaitForEndOfFrame();
 
-        // Freeze frame
-        RenderTexture rt = RenderTexture.GetTemporary(width, height, 0);
-        Graphics.Blit(webcam, rt);
-        frozenFrame = new Texture2D(width, height, TextureFormat.RGB24, false);
-        RenderTexture.active = rt;
-        frozenFrame.ReadPixels(new Rect(0, 0, inputWidth, inputHeight), 0, 0);
-        frozenFrame.Apply();
+        // A. CAPTURE HD IMAGE FOR DISPLAY (Fixes Blur/Stretch)
+        // ----------------------------------------------------
+        if (displayFrame != null) Destroy(displayFrame);
+        displayFrame = new Texture2D(webcam.width, webcam.height, TextureFormat.RGB24, false);
+        displayFrame.SetPixels32(webcam.GetPixels32());
+        displayFrame.Apply();
+        
+        // Show the HD image to the user
+        cameraPreview.texture = displayFrame;
 
-        // Kembalikan settingan render
+        // B. CAPTURE SMALL IMAGE FOR AI (Fixes 'width' error)
+        // ---------------------------------------------------
+        // Create temporary RenderTexture sized for AI (e.g. 224x224)
+        RenderTexture rt = RenderTexture.GetTemporary(inputWidth, inputHeight, 0);
+        
+        // Squash webcam image into small square
+        Graphics.Blit(webcam, rt); 
+        
+        // Save previous active render texture (Fixes 'oldRt' error)
+        RenderTexture oldRt = RenderTexture.active; 
+        
+        // Read pixels from small RT
+        RenderTexture.active = rt;
+        if (aiFrame != null) Destroy(aiFrame);
+        aiFrame = new Texture2D(inputWidth, inputHeight, TextureFormat.RGB24, false);
+        aiFrame.ReadPixels(new Rect(0, 0, inputWidth, inputHeight), 0, 0);
+        aiFrame.Apply();
+
+        // Restore and Clean up
         RenderTexture.active = oldRt;
         RenderTexture.ReleaseTemporary(rt);
 
-        // Hentikan kamera dan tampilkan hasil beku
+        // Stop camera now that we have the images
+        isFrozen = true;
         webcam.Stop();
-        cameraPreview.texture = frozenFrame;
 
-        // DISABLE BUTTON immediately
         if (captureButton != null) captureButton.interactable = false;
 
-        RunInferenceOnFrozenFrame();
+        RunInference();
     }
 
-    // ------------------------------------------------
-    // 2. RESTART LOGIC (Called by Back Button)
-    // ------------------------------------------------
     public void ContinueCamera()
     {
         if (webcam == null) return;
 
-        // Kembali ke mode live kamera
         cameraPreview.texture = webcam;
         webcam.Play();
         isFrozen = false;
 
-        // ✅ RE-ENABLE BUTTON
-        if (captureButton != null) 
-        {
-            captureButton.interactable = true;
-            Debug.Log("Capture button re-enabled.");
-        }
+        // Cleanup Memory
+        if (displayFrame != null) Destroy(displayFrame);
+        if (aiFrame != null) Destroy(aiFrame);
 
+        if (captureButton != null) captureButton.interactable = true;
         if (resultText != null) resultText.text = "✅ Ready!";
     }
 
@@ -254,10 +247,9 @@ public class CornTFLiteDetector : MonoBehaviour
     {
         if (resultText != null) resultText.text = "Analyzing...";
 
-        // Ambil warna pixel
-        Color32[] pixels = frozenFrame.GetPixels32();
+        // Use the SMALL AI FRAME for calculation
+        Color32[] pixels = aiFrame.GetPixels32();
 
-        // Normalisasi data (0-255 menjadi 0.0-1.0) untuk model Float32
         int idx = 0;
         for (int i = 0; i < pixels.Length; i++) {
             inputBuffer[idx++] = pixels[i].r / 255.0f;
@@ -265,15 +257,11 @@ public class CornTFLiteDetector : MonoBehaviour
             inputBuffer[idx++] = pixels[i].b / 255.0f;
         }
 
-        // Masukkan data ke TFLite
         interpreter.SetInputTensorData(0, inputBuffer);
 
         try
         {
-            // Jalankan Deteksi
             interpreter.Invoke();
-
-            // Ambil Hasil
             interpreter.GetOutputTensorData(0, outputBuffer);
 
             int predictedClass = 0;
@@ -290,11 +278,10 @@ public class CornTFLiteDetector : MonoBehaviour
 
             Debug.Log($"[RESULT] {className}");
 
-            // Trigger Result UI
             if (resultDisplay != null) {
                 resultDisplay.ShowResult(className);
             } else {
-                Debug.LogError("ResultDisplay not assigned in Detector script!");
+                Debug.LogError("ResultDisplay not assigned!");
             }
         }
         catch (System.Exception e) {
@@ -305,5 +292,7 @@ public class CornTFLiteDetector : MonoBehaviour
     void OnDestroy() {
         if (webcam != null) webcam.Stop();
         interpreter?.Dispose();
+        if (displayFrame != null) Destroy(displayFrame);
+        if (aiFrame != null) Destroy(aiFrame);
     }
 }
