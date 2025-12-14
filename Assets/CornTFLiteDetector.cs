@@ -8,12 +8,16 @@ using TMPro;
 
 public class CornTFLiteDetector : MonoBehaviour
 {
+    [Header("Script References")]
+    public ResultDisplay resultDisplay; 
+
     [Header("UI Assignments")]
     public RawImage cameraPreview;
-    public TMP_Text resultText;
-    public AspectRatioFitter fitter; // Pastikan ini diisi di Inspector!
+    public TMP_Text resultText; // Debug Text
+    public AspectRatioFitter fitter;
     public Button captureButton;
-    public Button continueButton;
+
+    // (Removed 'continueButton' variable because we use the Back button now)
 
     [Header("Model Settings")]
     [Range(0f, 1f)] public float detectionThreshold = 0.6f;
@@ -44,21 +48,17 @@ public class CornTFLiteDetector : MonoBehaviour
     {
         // Matikan tombol saat loading
         if (captureButton != null) captureButton.interactable = false;
-        if (continueButton != null) continueButton.interactable = false;
-
-        resultText.text = "Meminta izin kamera...";
+        
+        if(resultText != null) resultText.text = "Requesting camera permission...";
 
         yield return Application.RequestUserAuthorization(UserAuthorization.WebCam);
         if (!Application.HasUserAuthorization(UserAuthorization.WebCam))
         {
-            resultText.text = "❌ Izin kamera ditolak!";
+            if(resultText != null) resultText.text = "❌ Permission denied!";
             yield break;
         }
 
-        // Tunggu sebentar
-        yield return new WaitForSeconds(0.5f);
-
-        // --- 1. Load Model ---
+        // Load model
         string modelPath = Path.Combine(Application.streamingAssetsPath, modelFileName);
         byte[] modelData = null;
 
@@ -67,21 +67,15 @@ public class CornTFLiteDetector : MonoBehaviour
             using (UnityWebRequest www = UnityWebRequest.Get(modelPath))
             {
                 yield return www.SendWebRequest();
-                if (www.result != UnityWebRequest.Result.Success)
-                {
-                    resultText.text = $"❌ Gagal load model:\n{www.error}";
-                    yield break;
-                }
                 modelData = www.downloadHandler.data;
             }
         }
         else // Editor (PC)
         {
-            if (File.Exists(modelPath)) modelData = File.ReadAllBytes(modelPath);
-            else { resultText.text = "❌ Model tidak ditemukan di StreamingAssets!"; yield break; }
+            try { modelData = File.ReadAllBytes(modelPath); } catch {}
         }
 
-        // --- 2. Inisialisasi TFLite ---
+        // Init TFLite
         try
         {
             var options = new InterpreterOptions();
@@ -130,8 +124,7 @@ public class CornTFLiteDetector : MonoBehaviour
         }
         catch (System.Exception e)
         {
-            resultText.text = "❌ Error Inisialisasi TFLite!";
-            Debug.LogError($"TFLite Error: {e}");
+            Debug.LogError($"TFLite error: {e.Message}");
             yield break;
         }
 
@@ -145,25 +138,21 @@ public class CornTFLiteDetector : MonoBehaviour
     IEnumerator LoadLabels()
     {
         string labelPath = Path.Combine(Application.streamingAssetsPath, labelFileName);
-        string labelData = "";
-
-        if (labelPath.Contains("://"))
-        {
-            using (UnityWebRequest req = UnityWebRequest.Get(labelPath))
-            {
+        string labelData = null;
+        if (labelPath.Contains("://")) {
+            using (UnityWebRequest req = UnityWebRequest.Get(labelPath)) {
                 yield return req.SendWebRequest();
                 labelData = req.downloadHandler.text;
             }
-        }
-        else if (File.Exists(labelPath))
-        {
-            labelData = File.ReadAllText(labelPath);
+        } else {
+            try { labelData = File.ReadAllText(labelPath); } catch { }
         }
 
-        if (!string.IsNullOrEmpty(labelData))
-        {
+        if (!string.IsNullOrEmpty(labelData)) {
             labels = labelData.Split(new[] { '\n', '\r' }, System.StringSplitOptions.RemoveEmptyEntries);
         }
+
+        StartCamera();
     }
 
     void StartCamera()
@@ -172,28 +161,19 @@ public class CornTFLiteDetector : MonoBehaviour
         if (devices.Length == 0) return;
 
         string deviceName = devices[0].name;
-        for (int i = 0; i < devices.Length; i++)
-        {
-            if (!devices[i].isFrontFacing) { deviceName = devices[i].name; break; }
+        foreach (var device in devices) {
+            if (!device.isFrontFacing) {
+                deviceName = device.name;
+                break;
+            }
         }
 
-        // PERUBAHAN DI SINI:
-        // Gunakan ukuran layar saat ini untuk meminta resolusi kamera.
-        // Kita tukar Width dan Height karena sensor kamera HP biasanya Landscape fisik,
-        // tapi layar kita Portrait. Ini membantu mendapatkan FOV (Field of View) maksimal.
-        int w = Screen.height;
-        int h = Screen.width;
-
-        // Minta resolusi tinggi sesuai layar
-        webcam = new WebCamTexture(deviceName, w, h, 30);
-
+        webcam = new WebCamTexture(deviceName, 1280, 720, 30);
         cameraPreview.texture = webcam;
         webcam.Play();
 
-        if (captureButton) captureButton.interactable = true;
-        if (continueButton) continueButton.interactable = false;
-
-        resultText.text = $"✅ Siap Deteksi";
+        if (captureButton != null) captureButton.interactable = true;
+        if (resultText != null) resultText.text = "✅ Ready!";
     }
 
     // --- LOGIKA UTAMA FULL SCREEN DI SINI ---
@@ -201,41 +181,20 @@ public class CornTFLiteDetector : MonoBehaviour
     {
         if (webcam == null || !webcam.isPlaying || isFrozen) return;
 
-        if (webcam.width > 100)
-        {
-            // --- PERBAIKAN LOGIKA RASIO ---
-            if (fitter != null)
-            {
-                // Cek rotasi kamera. Jika 90 atau 270 derajat, berarti orientasi Portrait.
-                // Kita harus menukar rasio Width dan Height.
-                int rotation = webcam.videoRotationAngle;
-                float ratio;
-
-                if (rotation % 180 == 0)
-                {
-                    // Landscape (0 atau 180)
-                    ratio = (float)webcam.width / (float)webcam.height;
-                }
-                else
-                {
-                    // Portrait (90 atau 270)
-                    // Rasio dibalik agar Fitter menyesuaikan dengan layar tegak
-                    ratio = (float)webcam.height / (float)webcam.width;
-                }
-
-                fitter.aspectRatio = ratio;
-            }
-
-            // Atur Rotasi (Agar Portrait tegak lurus)
-            int orient = -webcam.videoRotationAngle;
-            cameraPreview.rectTransform.localEulerAngles = new Vector3(0, 0, orient);
-
-            // Atur Mirroring
-            float scaleY = webcam.videoVerticallyMirrored ? -1f : 1f;
-            cameraPreview.rectTransform.localScale = new Vector3(1f, scaleY, 1f);
+        if (fitter != null) {
+            float aspect = (float)webcam.width / webcam.height;
+            if (webcam.videoRotationAngle == 90 || webcam.videoRotationAngle == 270)
+                aspect = 1.0f / aspect;
+            fitter.aspectRatio = aspect;
         }
+
+        cameraPreview.rectTransform.localEulerAngles = new Vector3(0, 0, -webcam.videoRotationAngle);
+        cameraPreview.uvRect = new Rect(0, webcam.videoVerticallyMirrored ? 1 : 0, 1, webcam.videoVerticallyMirrored ? -1 : 1);
     }
 
+    // ------------------------------------------------
+    // 1. CAPTURE LOGIC
+    // ------------------------------------------------
     public void CaptureAndAnalyze()
     {
         if (!isModelReady || webcam == null || !webcam.isPlaying) return;
@@ -247,19 +206,10 @@ public class CornTFLiteDetector : MonoBehaviour
     {
         yield return new WaitForEndOfFrame();
 
-        // Buat Texture sementara di GPU untuk resize otomatis
-        // Kita resize gambar kamera HD ke ukuran kecil model (misal 224x224)
-        RenderTexture rt = RenderTexture.GetTemporary(inputWidth, inputHeight, 0, RenderTextureFormat.ARGB32);
-        RenderTexture oldRt = RenderTexture.active;
-
-        // Copy gambar webcam ke RenderTexture kecil
+        // Freeze frame
+        RenderTexture rt = RenderTexture.GetTemporary(width, height, 0);
         Graphics.Blit(webcam, rt);
-
-        // Bersihkan memory lama
-        if (frozenFrame != null) Destroy(frozenFrame);
-        frozenFrame = new Texture2D(inputWidth, inputHeight, TextureFormat.RGB24, false);
-
-        // Baca pixel dari RenderTexture
+        frozenFrame = new Texture2D(width, height, TextureFormat.RGB24, false);
         RenderTexture.active = rt;
         frozenFrame.ReadPixels(new Rect(0, 0, inputWidth, inputHeight), 0, 0);
         frozenFrame.Apply();
@@ -272,19 +222,15 @@ public class CornTFLiteDetector : MonoBehaviour
         webcam.Stop();
         cameraPreview.texture = frozenFrame;
 
-        // Karena texture kita sekarang kecil (224x224) dan mungkin orientasinya berubah setelah dibaca,
-        // Kita reset rotasi preview agar hasil crop terlihat tegak (Opsional, tergantung hasil di HP)
-        // Jika hasil freeze miring, hapus baris di bawah ini:
-        cameraPreview.rectTransform.localEulerAngles = Vector3.zero;
-        cameraPreview.rectTransform.localScale = Vector3.one;
+        // DISABLE BUTTON immediately
+        if (captureButton != null) captureButton.interactable = false;
 
-        isFrozen = true;
-        if (captureButton) captureButton.interactable = false;
-        if (continueButton) continueButton.interactable = true;
-
-        RunInference();
+        RunInferenceOnFrozenFrame();
     }
 
+    // ------------------------------------------------
+    // 2. RESTART LOGIC (Called by Back Button)
+    // ------------------------------------------------
     public void ContinueCamera()
     {
         if (webcam == null) return;
@@ -294,24 +240,26 @@ public class CornTFLiteDetector : MonoBehaviour
         webcam.Play();
         isFrozen = false;
 
-        if (captureButton) captureButton.interactable = true;
-        if (continueButton) continueButton.interactable = false;
-        resultText.text = "✅ Siap Deteksi";
+        // ✅ RE-ENABLE BUTTON
+        if (captureButton != null) 
+        {
+            captureButton.interactable = true;
+            Debug.Log("Capture button re-enabled.");
+        }
+
+        if (resultText != null) resultText.text = "✅ Ready!";
     }
 
     void RunInference()
     {
-        if (interpreter == null) return;
-
-        resultText.text = "🧠 Menganalisa...";
+        if (resultText != null) resultText.text = "Analyzing...";
 
         // Ambil warna pixel
         Color32[] pixels = frozenFrame.GetPixels32();
 
         // Normalisasi data (0-255 menjadi 0.0-1.0) untuk model Float32
         int idx = 0;
-        for (int i = 0; i < pixels.Length; i++)
-        {
+        for (int i = 0; i < pixels.Length; i++) {
             inputBuffer[idx++] = pixels[i].r / 255.0f;
             inputBuffer[idx++] = pixels[i].g / 255.0f;
             inputBuffer[idx++] = pixels[i].b / 255.0f;
@@ -328,40 +276,34 @@ public class CornTFLiteDetector : MonoBehaviour
             // Ambil Hasil
             interpreter.GetOutputTensorData(0, outputBuffer);
 
-            // Cari nilai tertinggi (Confidence tertinggi)
-            float maxVal = 0f;
-            int maxIdx = -1;
-            for (int i = 0; i < outputBuffer.Length; i++)
-            {
-                if (outputBuffer[i] > maxVal)
-                {
-                    maxVal = outputBuffer[i];
-                    maxIdx = i;
+            int predictedClass = 0;
+            float maxConfidence = outputBuffer[0];
+            for (int i = 1; i < outputBuffer.Length; i++) {
+                if (outputBuffer[i] > maxConfidence) {
+                    maxConfidence = outputBuffer[i];
+                    predictedClass = i;
                 }
             }
 
-            // Tampilkan Text
-            string label = (labels != null && maxIdx >= 0 && maxIdx < labels.Length) ? labels[maxIdx] : $"Class {maxIdx}";
+            string className = (labels != null && predictedClass < labels.Length) 
+                ? labels[predictedClass] : $"Class {predictedClass}";
 
-            // Tampilkan dalam persen
-            float confidencePercent = maxVal * 100f;
+            Debug.Log($"[RESULT] {className}");
 
-            if (maxVal >= detectionThreshold)
-                resultText.text = $"Hasil: {label}\nAkurasi: {confidencePercent:F1}%";
-            else
-                resultText.text = $"Kurang Yakin: {label}\nAkurasi: {confidencePercent:F1}%";
+            // Trigger Result UI
+            if (resultDisplay != null) {
+                resultDisplay.ShowResult(className);
+            } else {
+                Debug.LogError("ResultDisplay not assigned in Detector script!");
+            }
         }
-        catch (System.Exception e)
-        {
-            Debug.LogError(e);
-            resultText.text = "Gagal Deteksi";
+        catch (System.Exception e) {
+            Debug.LogError(e.Message);
         }
     }
 
-    void OnDestroy()
-    {
+    void OnDestroy() {
         if (webcam != null) webcam.Stop();
-        if (interpreter != null) interpreter.Dispose();
-        if (frozenFrame != null) Destroy(frozenFrame);
+        interpreter?.Dispose();
     }
 }
