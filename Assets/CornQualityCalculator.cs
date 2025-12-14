@@ -53,9 +53,9 @@ public class CornQualityCalculator : MonoBehaviour
         float weightSoil = 0.20f;
 
         finalWeightedScore = (physicalConditionScore * weightCondition) +
-                             (lengthScore * weightLength) +
-                             (resistanceScore * weightSeed) +
-                             (soilScore * weightSoil);
+                            (lengthScore * weightLength) +
+                            (resistanceScore * weightSeed) +
+                            (soilScore * weightSoil);
 
         // --- LOGGING ---
         Debug.Log($"[CALCULATION] AI Label: {aiLabel} | Input Length: {cornLengthCm}cm");

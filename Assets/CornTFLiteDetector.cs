@@ -24,20 +24,29 @@ public class CornTFLiteDetector : MonoBehaviour
     public string modelFileName = "corn_detector.tflite";
     public string labelFileName = "labels.txt";
 
+    [Header("TFLite Settings")]
+    [Tooltip("Matikan jika aplikasi keluar sendiri (Crash) saat tombol ditekan")]
+    public bool useGPUDelegate = false;
+
     private WebCamTexture webcam;
     private Interpreter interpreter;
+
     private Texture2D frozenFrame;
     private float[] inputBuffer;
     private float[] outputBuffer;
     private string[] labels;
 
-    private readonly int width = 224;
-    private readonly int height = 224;
+    // Dimensi yang dibaca otomatis dari Model
+    private int inputWidth;
+    private int inputHeight;
+    private int inputChannels;
+
     private bool isModelReady = false;
     private bool isFrozen = false;
 
     IEnumerator Start()
     {
+        // Matikan tombol saat loading
         if (captureButton != null) captureButton.interactable = false;
         
         if(resultText != null) resultText.text = "Requesting camera permission...";
@@ -53,7 +62,7 @@ public class CornTFLiteDetector : MonoBehaviour
         string modelPath = Path.Combine(Application.streamingAssetsPath, modelFileName);
         byte[] modelData = null;
 
-        if (modelPath.Contains("://"))
+        if (modelPath.Contains("://")) // Android (dalam APK)
         {
             using (UnityWebRequest www = UnityWebRequest.Get(modelPath))
             {
@@ -61,7 +70,7 @@ public class CornTFLiteDetector : MonoBehaviour
                 modelData = www.downloadHandler.data;
             }
         }
-        else
+        else // Editor (PC)
         {
             try { modelData = File.ReadAllBytes(modelPath); } catch {}
         }
@@ -70,12 +79,47 @@ public class CornTFLiteDetector : MonoBehaviour
         try
         {
             var options = new InterpreterOptions();
-            options.AddGpuDelegate();
+
+            // GPU Delegate (Opsional)
+            if (useGPUDelegate)
+            {
+                try { options.AddGpuDelegate(); }
+                catch { Debug.LogWarning("GPU gagal, pakai CPU saja."); }
+            }
+
+            options.threads = 2;
             interpreter = new Interpreter(modelData, options);
             interpreter.AllocateTensors();
 
-            inputBuffer = new float[width * height * 3];
-            outputBuffer = new float[3];
+            // --- 3. BACA UKURAN MODEL OTOMATIS (Anti Crash) ---
+            var inputInfo = interpreter.GetInputTensorInfo(0);
+            int[] inputShape = inputInfo.shape; // contoh: [1, 224, 224, 3]
+
+            // Ambil Lebar, Tinggi, Channel dari info model
+            if (inputShape.Length == 4)
+            {
+                inputHeight = inputShape[1];
+                inputWidth = inputShape[2];
+                inputChannels = inputShape[3];
+            }
+            else
+            {
+                // Jaga-jaga jika format model beda, pakai standar default
+                inputHeight = 224;
+                inputWidth = 224;
+                inputChannels = 3;
+            }
+
+            Debug.Log($"Ukuran Model: {inputWidth}x{inputHeight}, Channel: {inputChannels}");
+
+            // Siapkan Buffer Data
+            inputBuffer = new float[inputWidth * inputHeight * inputChannels];
+
+            // Siapkan Output
+            var outputInfo = interpreter.GetOutputTensorInfo(0);
+            int outputClasses = outputInfo.shape[1];
+            outputBuffer = new float[outputClasses];
+
             isModelReady = true;
         }
         catch (System.Exception e)
@@ -84,7 +128,15 @@ public class CornTFLiteDetector : MonoBehaviour
             yield break;
         }
 
-        // Load labels
+        // --- 4. Load Labels ---
+        yield return LoadLabels();
+
+        resultText.text = "✅ Siap!\nMenyalakan kamera...";
+        StartCamera();
+    }
+
+    IEnumerator LoadLabels()
+    {
         string labelPath = Path.Combine(Application.streamingAssetsPath, labelFileName);
         string labelData = null;
         if (labelPath.Contains("://")) {
@@ -124,6 +176,7 @@ public class CornTFLiteDetector : MonoBehaviour
         if (resultText != null) resultText.text = "✅ Ready!";
     }
 
+    // --- LOGIKA UTAMA FULL SCREEN DI SINI ---
     void Update()
     {
         if (webcam == null || !webcam.isPlaying || isFrozen) return;
@@ -145,20 +198,29 @@ public class CornTFLiteDetector : MonoBehaviour
     public void CaptureAndAnalyze()
     {
         if (!isModelReady || webcam == null || !webcam.isPlaying) return;
+        StartCoroutine(CaptureRoutine());
+    }
+
+    // Coroutine untuk mengambil gambar dengan aman
+    IEnumerator CaptureRoutine()
+    {
+        yield return new WaitForEndOfFrame();
 
         // Freeze frame
         RenderTexture rt = RenderTexture.GetTemporary(width, height, 0);
         Graphics.Blit(webcam, rt);
         frozenFrame = new Texture2D(width, height, TextureFormat.RGB24, false);
         RenderTexture.active = rt;
-        frozenFrame.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+        frozenFrame.ReadPixels(new Rect(0, 0, inputWidth, inputHeight), 0, 0);
         frozenFrame.Apply();
-        RenderTexture.active = null;
+
+        // Kembalikan settingan render
+        RenderTexture.active = oldRt;
         RenderTexture.ReleaseTemporary(rt);
 
-        cameraPreview.texture = frozenFrame;
-        isFrozen = true;
+        // Hentikan kamera dan tampilkan hasil beku
         webcam.Stop();
+        cameraPreview.texture = frozenFrame;
 
         // DISABLE BUTTON immediately
         if (captureButton != null) captureButton.interactable = false;
@@ -173,6 +235,7 @@ public class CornTFLiteDetector : MonoBehaviour
     {
         if (webcam == null) return;
 
+        // Kembali ke mode live kamera
         cameraPreview.texture = webcam;
         webcam.Play();
         isFrozen = false;
@@ -187,11 +250,14 @@ public class CornTFLiteDetector : MonoBehaviour
         if (resultText != null) resultText.text = "✅ Ready!";
     }
 
-    void RunInferenceOnFrozenFrame()
+    void RunInference()
     {
         if (resultText != null) resultText.text = "Analyzing...";
 
+        // Ambil warna pixel
         Color32[] pixels = frozenFrame.GetPixels32();
+
+        // Normalisasi data (0-255 menjadi 0.0-1.0) untuk model Float32
         int idx = 0;
         for (int i = 0; i < pixels.Length; i++) {
             inputBuffer[idx++] = pixels[i].r / 255.0f;
@@ -199,10 +265,15 @@ public class CornTFLiteDetector : MonoBehaviour
             inputBuffer[idx++] = pixels[i].b / 255.0f;
         }
 
+        // Masukkan data ke TFLite
+        interpreter.SetInputTensorData(0, inputBuffer);
+
         try
         {
-            interpreter.SetInputTensorData(0, inputBuffer);
+            // Jalankan Deteksi
             interpreter.Invoke();
+
+            // Ambil Hasil
             interpreter.GetOutputTensorData(0, outputBuffer);
 
             int predictedClass = 0;
