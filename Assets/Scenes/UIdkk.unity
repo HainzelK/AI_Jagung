@@ -131,6 +131,7 @@ GameObject:
   - component: {fileID: 90044835}
   - component: {fileID: 90044834}
   - component: {fileID: 90044833}
+  - component: {fileID: 90044837}
   m_Layer: 0
   m_Name: Corn Detector
   m_TagString: Untagged
@@ -194,6 +195,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   resultDisplay: {fileID: 90044833}
   arCameraManager: {fileID: 426248762}
+  coinCalculator: {fileID: 90044837}
   freezePreview: {fileID: 859013611}
   resultText: {fileID: 0}
   captureButton: {fileID: 1138126199}
@@ -215,6 +217,21 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &90044837
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 90044832}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a69bb0219d192a14d87de5d9365c98a5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  coinRealDiameterCm: 2.6
+  sensitivity: 0.5
+  minPixelArea: 400
 --- !u!1 &106562964
 GameObject:
   m_ObjectHideFlags: 0
@@ -767,6 +784,8 @@ GameObject:
   - component: {fileID: 426248761}
   - component: {fileID: 426248760}
   - component: {fileID: 426248759}
+  - component: {fileID: 426248766}
+  - component: {fileID: 426248765}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -1026,6 +1045,39 @@ Camera:
   m_OcclusionCulling: 1
   m_StereoConvergence: 10
   m_StereoSeparation: 0.022
+--- !u!114 &426248765
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 426248757}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fa17d122634046b4a8e23048891fafc5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  <trackablesChanged>k__BackingField:
+    m_PersistentCalls:
+      m_Calls: []
+  m_RaycastPrefab: {fileID: 0}
+--- !u!114 &426248766
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 426248757}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e0cb9aa70a22847b5925ee5f067c10a9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_Camera: {fileID: 0}
+  m_OriginBaseGameObject: {fileID: 426248757}
+  m_CameraFloorOffsetObject: {fileID: 0}
+  m_RequestedTrackingOriginMode: 0
+  m_CameraYOffset: 1.1176
 --- !u!1 &444824371
 GameObject:
   m_ObjectHideFlags: 0
@@ -2318,7 +2370,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: 0, y: -23.695002}
+  m_AnchoredPosition: {x: 0, y: -23.694946}
   m_SizeDelta: {x: 0, y: -47.389996}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1241524037
@@ -3263,7 +3315,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: BIGUL
+  m_text: BIUN
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 07bc2de467d2044419ce008787ba4ded, type: 2}
   m_sharedMaterial: {fileID: -1482664558266749520, guid: 07bc2de467d2044419ce008787ba4ded, type: 2}
